@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services import applications, listings
+from app.services.application_states import InvalidTransitionError
 from app.services import board_auth as auth
 
 router = APIRouter(tags=["job-board"])
@@ -41,7 +42,7 @@ class ApplyBody(BaseModel):
 
 class TransitionBody(BaseModel):
     action: str = Field(
-        description="mark_reviewed | shortlist | reject | hire | reopen"
+        description="mark_reviewed | shortlist | reject | hire"
     )
     actor_id: int
 
@@ -140,9 +141,13 @@ def export(listing_id: int, actor_id: int) -> dict[str, Any]:
 
 @router.post("/applications/{application_id}/transition")
 def transition(application_id: int, body: TransitionBody) -> dict[str, Any]:
-    result = applications.transition_application(
-        body.actor_id, application_id, body.action
-    )
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error"))
-    return result
+    try:
+        return applications.transition_application(
+            body.actor_id, application_id, body.action
+        )
+    except applications.TransitionForbidden as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except applications.ApplicationNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))

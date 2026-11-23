@@ -38,6 +38,10 @@ def create_db_and_tables() -> None:
 
     SQLModel.metadata.create_all(engine)
 
+    from app.migrations import drop_lifecycle_flags
+
+    drop_lifecycle_flags.run(engine)
+
 
 def drop_all() -> None:
     SQLModel.metadata.drop_all(bind=engine)

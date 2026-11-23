@@ -11,8 +11,3 @@ class Application(SQLModel, table=True):
     resume_text: str
     # Canonical label (often drifts from the boolean flags below).
     status: str
-    # Poor man's lifecycle tracker: parallel flags updated ad hoc.
-    flag_reviewed: int = 0
-    flag_shortlisted: int = 0
-    flag_rejected: int = 0
-    flag_hired: int = 0

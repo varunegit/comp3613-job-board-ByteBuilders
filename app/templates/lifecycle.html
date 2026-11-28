@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% block title %}Lifecycle Demo | HireBoard{% endblock %}
+
+{% block internal_css %}
+<style>
+  .lifecycle-page { min-height: 100vh; background: #f4f7fb; padding: 1.5rem; }
+  .lifecycle-shell { max-width: 1180px; margin: 0 auto; }
+  .lifecycle-header { display: flex; justify-content: space-between; gap: 1rem; align-items: center; margin-bottom: 1rem; }
+  .lifecycle-header h1 { margin: 0; color: #121820; }
+  .lifecycle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .lifecycle-panel { background: #fff; border: 1px solid #d8e0e8; border-radius: .45rem; padding: 1rem; box-shadow: 0 8px 24px rgba(18,24,32,.06); }
+  .lifecycle-panel h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
+  .demo-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .demo-row select, .demo-row input { border: 1px solid #b9c4cf; border-radius: .35rem; padding: .55rem .65rem; }
+  .employer-field { display: inline-flex; align-items: center; gap: .5rem; }
+  .employer-field label { margin: 0; white-space: nowrap; }
+  .job-card, .application-card { border: 1px solid #dde5ed; border-radius: .45rem; padding: .75rem; margin-top: .75rem; background: #fbfcfe; }
+  .job-card h3, .application-card h3 { font-size: 1rem; margin: 0 0 .35rem; }
+  .status-badge { display: inline-block; border-radius: 999px; padding: .22rem .65rem; font-size: .82rem; font-weight: 700; text-transform: capitalize; }
+  .status-submitted { background: #dbeafe; color: #1e3a8a; }
+  .status-reviewed { background: #ede9fe; color: #5b21b6; }
+  .status-shortlisted { background: #fef3c7; color: #92400e; }
+  .status-rejected { background: #fee2e2; color: #991b1b; }
+  .status-hired { background: #dcfce7; color: #166534; }
+  .action-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .65rem; }
+  .demo-button { border: 1px solid #b9c4cf; background: #fff; color: #121820; border-radius: .35rem; padding: .45rem .65rem; cursor: pointer; }
+  .demo-button:hover { border-color: #3f6f9a; }
+  .demo-button:disabled { opacity: .45; cursor: not-allowed; }
+  .danger-button { border-color: #b91c1c; color: #991b1b; }
+  .success-message { margin-top: .75rem; padding: .75rem; border: 1px solid #4caf50; background: #f0fff4; color: #2e7d32; border-radius: .35rem; }
+  .success-box { display: none; margin-top: .75rem; border: 1px solid #16a34a; background: #f0fdf4; color: #166534; border-radius: .35rem; padding: .75rem; }
+  .error-box { display: none; margin-top: .75rem; border: 1px solid #dc2626; background: #fff1f2; color: #991b1b; border-radius: .35rem; padding: .75rem; }
+  .log-panel { grid-column: 1 / -1; }
+  #requestLog { min-height: 120px; max-height: 230px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+  #requestLog li { border-bottom: 1px solid #edf1f5; padding: .35rem 0; font-family: Consolas, monospace; font-size: .86rem; }
+  @media (max-width: 800px) { .lifecycle-grid { grid-template-columns: 1fr; } .log-panel { grid-column: auto; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="lifecycle-page">
+  <div class="lifecycle-shell">
+    <header class="lifecycle-header">
+      <div>
+        <a class="brand-wordmark" href="{{ url_for('index_view') }}" style="text-decoration:none;color:#121820">HireBoard</a>
+        <h1>Lifecycle demo</h1>
+      </div>
+      <div class="demo-row">
+        <label for="actorSelect"><strong>Acting as</strong></label>
+        <select id="actorSelect">
+          <option value="grad.dcit@example.com">grad.dcit</option>
+          <option value="grad.other@example.com">grad.other</option>
+          <option value="employer@example.com">employer</option>
+          <option value="employer2@example.com">employer2</option>
+          <option value="admin@example.com">admin</option>
+        </select>
+      </div>
+    </header>
+
+    <div id="errorBox" class="error-box" role="alert"></div>
+    <div id="successBox" class="success-box" role="status"></div>
+
+    <main class="lifecycle-grid">
+      <section class="lifecycle-panel">
+        <h2>Jobs</h2>
+        <div id="jobsPanel">Loading jobs...</div>
+      </section>
+
+      <section class="lifecycle-panel">
+        <h2>Applications</h2>
+        <div id="employerControls" class="demo-row" hidden>
+          <div class="employer-field">
+            <label for="listingInput">Listing ID</label>
+            <input id="listingInput" type="number" min="1" value="1">
+          </div>
+          <div class="employer-field">
+            <label for="applicationSelect">Application ID</label>
+            <select id="applicationSelect"><option value="">Load applicants first</option></select>
+          </div>
+          <button id="loadApplicantsButton" class="demo-button" type="button">Load applicants</button>
+        </div>
+        <div id="applicationsPanel">Loading applications...</div>
+      </section>
+
+      <section class="lifecycle-panel log-panel">
+        <h2>Request log</h2>
+        <ul id="requestLog"></ul>
+      </section>
+    </main>
+  </div>
+</div>
+{% endblock %}
+
+{% block external_js %}
+<script>
+(() => {
+  const passwords = {
+    "grad.dcit@example.com": "grad-dev",
+    "grad.other@example.com": "grad-dev",
+    "employer@example.com": "employer-dev",
+    "employer2@example.com": "employer-dev",
+    "admin@example.com": "admin-dev"
+  };
+
+  let actingUser = null;
+  let employerApplications = [];
+  let jobLookup = {};
+
+  const actorSelect = document.getElementById("actorSelect");
+  const jobsPanel = document.getElementById("jobsPanel");
+  const applicationsPanel = document.getElementById("applicationsPanel");
+  const employerControls = document.getElementById("employerControls");
+  const applicationSelect = document.getElementById("applicationSelect");
+  const listingInput = document.getElementById("listingInput");
+  const loadApplicantsButton = document.getElementById("loadApplicantsButton");
+  const errorBox = document.getElementById("errorBox");
+  const successBox = document.getElementById("successBox");
+  const requestLog = document.getElementById("requestLog");
+
+  function appendLog(method, url, status) {
+    const item = document.createElement("li");
+    item.textContent = `${method} ${url} -> ${status}`;
+    requestLog.prepend(item);
+  }
+
+  function showError(status, detail) {
+    clearSuccess();
+    errorBox.textContent = `${status}: ${detail || "Request failed"}`;
+    errorBox.style.display = "block";
+  }
+
+  function showSuccess(applicationId, oldStatus, newStatus) {
+    clearError();
+    successBox.textContent = `Application ${applicationId}: ${oldStatus} -> ${newStatus}`;
+    successBox.style.display = "block";
+  }
+
+  function clearSuccess() {
+    successBox.textContent = "";
+    successBox.style.display = "none";
+  }
+
+  function clearError() {
+    errorBox.textContent = "";
+    errorBox.style.display = "none";
+  }
+
+  async function apiRequest(method, url, body) {
+    const options = { method, headers: {} };
+    if (body !== undefined) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+    appendLog(method, url, response.status);
+    let data = {};
+    try { data = await response.json(); } catch (_) { data = {}; }
+
+    if (!response.ok) {
+      showError(response.status, data.detail || data.error || "Request failed");
+      return { ok: false, status: response.status, data };
+    }
+    clearError();
+    return { ok: true, status: response.status, data };
+  }
+
+  async function login(email) {
+    clearError();
+    clearSuccess();
+    const result = await apiRequest("POST", "/api/auth/login", { email, password: passwords[email] });
+    if (result.ok) {
+      actingUser = result.data.user;
+      await refreshPage();
+    }
+  }
+
+  async function loadJobs() {
+    jobsPanel.textContent = "Loading jobs...";
+    const result = await apiRequest("GET", "/api/jobs");
+    if (!result.ok) return;
+
+    jobsPanel.textContent = "";
+    const jobs = result.data.jobs || [];
+    jobLookup = {};
+    for (const job of jobs) {
+      jobLookup[String(job.id)] = job.title;
+    }
+    if (!jobs.length) {
+      jobsPanel.textContent = "No jobs available.";
+      return;
+    }
+
+    for (const job of jobs) {
+      const card = document.createElement("article");
+      card.className = "job-card";
+
+      const title = document.createElement("h3");
+      title.textContent = job.title;
+      const company = document.createElement("div");
+      company.textContent = job.company;
+
+      const applyButton = document.createElement("button");
+      applyButton.type = "button";
+      applyButton.className = "demo-button";
+      applyButton.textContent = "Apply";
+      applyButton.disabled = !actingUser || actingUser.role !== "graduate";
+      applyButton.addEventListener("click", () => applyToJob(job.id));
+
+      card.append(title, company, applyButton);
+      jobsPanel.appendChild(card);
+    }
+  }
+
+  async function applyToJob(jobId) {
+    if (!actingUser || actingUser.role !== "graduate") return;
+    const result = await apiRequest("POST", "/api/graduates/applications", {
+      actor_id: actingUser.id,
+      listing_id: jobId,
+      cover_letter: "Demo application",
+      resume_text: actingUser.resume_text || "Demo resume"
+    });
+    if (result.ok) {
+      await refreshApplications();
+    }
+  }
+
+  async function refreshApplications() {
+    if (!actingUser) return;
+
+    if (actingUser.role === "graduate") {
+      employerControls.hidden = true;
+      applicationsPanel.textContent = "Loading applications...";
+      const result = await apiRequest("GET", `/api/graduates/applications?actor_id=${actingUser.id}`);
+      if (!result.ok) return;
+      renderApplications(result.data.applications || []);
+    } else {
+      employerControls.hidden = false;
+      applicationsPanel.textContent = "Load a listing to view and select application IDs.";
+    }
+  }
+
+  async function loadApplicants() {
+    const listingId = listingInput.value;
+    if (!listingId) return;
+
+    const result = await apiRequest("GET", `/api/listings/${listingId}/applicants?actor_id=${actingUser.id}`);
+    if (!result.ok) return;
+
+    employerApplications = result.data.applicants || [];
+    applicationSelect.textContent = "";
+    if (!employerApplications.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No applications";
+      applicationSelect.appendChild(option);
+      applicationsPanel.textContent = "No applications for this listing.";
+      return;
+    }
+
+    for (const application of employerApplications) {
+      const option = document.createElement("option");
+      option.value = String(application.id);
+      option.textContent = `Application ${application.id} — ${application.status}`;
+      applicationSelect.appendChild(option);
+    }
+    renderApplications([employerApplications[0]]);
+  }
+
+  function statusClass(status) {
+    return `status-badge status-${String(status).toLowerCase().replace(/[^a-z]/g, "")}`;
+  }
+
+  function renderApplications(applications) {
+    applicationsPanel.textContent = "";
+    if (!applications.length) {
+      applicationsPanel.textContent = "No applications to show.";
+      return;
+    }
+
+    for (const application of applications) {
+      const card = document.createElement("article");
+      card.className = "application-card";
+
+      const title = document.createElement("h3");
+      title.textContent = `Application ${application.id}`;
+
+      const listingTitle = document.createElement("div");
+      listingTitle.textContent = jobLookup[String(application.listing_id)] || `Listing ${application.listing_id}`;
+
+      const badge = document.createElement("span");
+      badge.className = statusClass(application.status);
+      badge.textContent = application.status;
+
+      card.append(title, listingTitle, badge);
+
+      if (actingUser && actingUser.role !== "graduate") {
+        const actions = document.createElement("div");
+        actions.className = "action-row";
+        const actionButtons = [
+          ["mark_reviewed", "Mark reviewed"],
+          ["shortlist", "Shortlist"],
+          ["reject", "Reject"],
+          ["hire", "Hire"],
+          ["reopen", "Reopen (always refused)"]
+        ];
+
+        for (const [action, label] of actionButtons) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "demo-button" + (action === "reopen" ? " danger-button" : "");
+          button.textContent = label;
+          button.addEventListener("click", () => transitionApplication(application.id, action, badge));
+          actions.appendChild(button);
+        }
+        card.append(actions);
+      }
+
+      applicationsPanel.appendChild(card);
+    }
+  }
+
+  async function transitionApplication(applicationId, action, badge) {
+    const oldStatus = badge.textContent;
+    const result = await apiRequest("POST", `/api/applications/${applicationId}/transition`, {
+      actor_id: actingUser.id,
+      action
+    });
+    if (result.ok) {
+      const updated = result.data.application;
+      badge.textContent = updated.status;
+      badge.className = statusClass(updated.status);
+      showSuccess(applicationId, oldStatus, updated.status);
+    }
+  }
+
+  async function refreshPage() {
+    await loadJobs();
+    await refreshApplications();
+  }
+
+  actorSelect.addEventListener("change", () => login(actorSelect.value));
+  loadApplicantsButton.addEventListener("click", loadApplicants);
+  applicationSelect.addEventListener("change", () => {
+    const selected = employerApplications.find(app => String(app.id) === applicationSelect.value);
+    renderApplications(selected ? [selected] : []);
+  });
+
+  login(actorSelect.value);
+})();
+</script>
+{% endblock %}

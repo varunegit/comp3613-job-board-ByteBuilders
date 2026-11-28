@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, status
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.routers import api_router, router, static_files, templates
@@ -59,11 +60,16 @@ async def health():
     return {"ok": True, "status": "ok", "scenario": "job-board", "version": "0.2.0"}
 
 
+
 @app.exception_handler(status.HTTP_401_UNAUTHORIZED)
 async def unauthorized_redirect_handler(request: Request, exc: Exception):
+    if request.url.path.startswith("/api"):
+        detail = getattr(exc, "detail", "unauthorized")
+        return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": detail})
     return templates.TemplateResponse(
         request=request,
         name="401.html",
+        status_code=status.HTTP_401_UNAUTHORIZED,
     )
 
 
